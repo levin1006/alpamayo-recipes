@@ -1,8 +1,8 @@
-# Alpamayo-1 SFT
+# Alpamayo 1 SFT
 
 **The following examples were validated on 8× H100 GPUs with 80 GB each.**
 
-This guide explains how to run supervised fine-tuning (SFT) for the Alpamayo-1 model on the
+This guide explains how to run supervised fine-tuning (SFT) for the Alpamayo 1 model on the
 Physical AI AV dataset.
 
 ## Features
@@ -51,7 +51,7 @@ Set your Hugging Face token first:
 export HF_TOKEN=<your Hugging Face token>
 ```
 
-Download a representative slice for Alpamayo-1 (chunks 0–100, four cameras, egomotion) running from `alpamayo-recipes`:
+Download a representative slice for Alpamayo 1 (chunks 0–100, four cameras, egomotion) running from `alpamayo-recipes`:
 
 ```bash
 cd $YOUR_HOME/alpamayo-recipes
@@ -83,7 +83,7 @@ python scripts/download_pai.py --only-reasoning-chunks \
 
 ### Download the checkpoint
 
-Download the pretrained Alpamayo-1 checkpoint from
+Download the pretrained Alpamayo 1 checkpoint from
 [Hugging Face](https://huggingface.co/nvidia/Alpamayo-R1-10B) into a local directory (Stage 1
 loads weights from disk):
 
@@ -98,7 +98,7 @@ Set `checkpoint_path` in [configs/models/ar1_base.yaml](configs/models/ar1_base.
 
 ## Run Stage 1 Fine-tuning
 
-Alpamayo-1 uses Hydra, so you can extend or override configuration in a structured way.
+Alpamayo 1 uses Hydra, so you can extend or override configuration in a structured way.
 
 **Weights & Biases:** To log runs to W&B, uncomment the `wandb` default, and set `report_to: wandb` under
 `trainer` in [configs/sft_base.yaml](configs/sft_base.yaml). Additionally, fill in `team` and `project` in
