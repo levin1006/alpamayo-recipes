@@ -189,7 +189,7 @@ Key fields to set:
 4. (Optional) `[logging].logger = ["console", "wandb"]`.
 
 **Local test (single node):** activate the installed environment, then
-run from the alpamayo directory:
+run from the root directory:
 
 ```bash
 cd "$ALPAMAYO_WORKSPACE"
