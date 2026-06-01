@@ -159,7 +159,7 @@ something different.
 
 ### Adding a Recipe for Released Alpamayo Models
 
-Put a new recipe under `recipes/<recipe_slug>/`, where `<recipe_slug>` is short, lowercase, and
+Put a new recipe under `recipes/<recipe_name>/`, where `<recipe_name>` is short, lowercase, and
 descriptive. A typical recipe includes:
 
 - `README.md` with the workflow, setup, inputs, commands, expected outputs, and limitations.
@@ -224,7 +224,7 @@ where needed.
 ### README Expectations
 
 Every recipe README should make the workflow reproducible for someone starting from a clean
-checkout. Include:
+checkout. Include as applicable:
 
 - what the recipe does and which Alpamayo model versions it supports
 - hardware assumptions, especially GPU count and memory
@@ -233,6 +233,7 @@ checkout. Include:
 - exact commands to run the workflow
 - expected outputs, metrics, logs, or files
 - known limitations and what the recipe does not cover
+- etc
 
 Use local paths and environment variables consistently, and avoid hardcoding user-specific paths.
 Do not include secrets, tokens, private dataset paths, generated checkpoints, or large artifacts in
