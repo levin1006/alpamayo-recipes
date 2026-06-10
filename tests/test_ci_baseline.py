@@ -15,24 +15,37 @@ def _load_toml(path: Path) -> dict:
         return tomllib.load(handle)
 
 
+def _workflow_job_block(workflow: str, job_name: str) -> str:
+    lines = workflow.splitlines()
+    start = lines.index(f"  {job_name}:")
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        line = lines[index]
+        if line.startswith("  ") and not line.startswith("    ") and line.strip().endswith(":"):
+            end = index
+            break
+    return "\n".join(lines[start:end])
+
+
 def test_cpu_ci_workflow_runs_required_baseline_checks() -> None:
     workflow = CI_WORKFLOW.read_text()
+    cpu_job = _workflow_job_block(workflow, "cpu")
 
     required_commands = [
         "uv build --project src --sdist --wheel",
         "python -m compileall -q src scripts recipes",
-        "uv lock --check --project recipes/alpamayo1_sft",
-        "uv lock --check --project recipes/alpamayo1_5_sft",
-        "uv lock --check --project recipes/alpamayo1_x_rl",
+        "for pyproject in recipes/*/pyproject.toml; do",
+        'recipe_dir="$(dirname "$pyproject")"',
+        'uv lock --check --project "$recipe_dir"',
         "uv run --with pytest pytest tests -q",
     ]
     for command in required_commands:
-        assert command in workflow
+        assert command in cpu_job
 
     heavy_runtime_terms = ("flash-attn", "vllm", "cuda", "gpu", "nvidia-smi")
-    workflow_lower = workflow.lower()
+    cpu_job_lower = cpu_job.lower()
     for term in heavy_runtime_terms:
-        assert term not in workflow_lower
+        assert term not in cpu_job_lower
 
 
 def test_shared_package_build_metadata_stays_lightweight() -> None:

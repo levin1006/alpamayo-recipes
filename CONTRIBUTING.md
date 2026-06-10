@@ -265,9 +265,10 @@ The repository CI runs a CPU-only baseline on pull requests and pushes to `main`
 
 ```bash
 uv build --project src --sdist --wheel
-uv lock --check --project recipes/alpamayo1_sft
-uv lock --check --project recipes/alpamayo1_5_sft
-uv lock --check --project recipes/alpamayo1_x_rl
+for pyproject in recipes/*/pyproject.toml; do
+  recipe_dir="$(dirname "$pyproject")"
+  uv lock --check --project "$recipe_dir"
+done
 python -m compileall -q src scripts recipes
 uv run --with pytest pytest tests -q
 ```

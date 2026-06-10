@@ -41,17 +41,21 @@ jobs:
           elif [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
             git diff --check "${{ github.event.before }}" HEAD
           else
-            git diff --check HEAD
+            git diff-tree --check --root -r --no-commit-id HEAD
           fi
 
       - name: Build shared package
         run: uv build --project src --sdist --wheel
 
       - name: Check recipe lockfiles
+        shell: bash
         run: |
-          uv lock --check --project recipes/alpamayo1_sft
-          uv lock --check --project recipes/alpamayo1_5_sft
-          uv lock --check --project recipes/alpamayo1_x_rl
+          set -euo pipefail
+
+          for pyproject in recipes/*/pyproject.toml; do
+            recipe_dir="$(dirname "$pyproject")"
+            uv lock --check --project "$recipe_dir"
+          done
 
       - name: Compile Python sources
         run: python -m compileall -q src scripts recipes
