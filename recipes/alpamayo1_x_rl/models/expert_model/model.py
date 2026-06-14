@@ -343,9 +343,12 @@ class ExpertModelRL(ExpertModel):
             log_prob: [B] scalar per sample.
             kl_div: [B] or None (KL divergence from teacher).
         """
-        from alpamayo1_x_rl.diffusion.flow_matching import FlowMatching
-
-        assert isinstance(self.diffusion, FlowMatching), "Only FlowMatching supports SDE log_prob"
+        assert hasattr(self.diffusion, "_batched_sde_logprob"), (
+            "SDE log_prob requires a FlowMatching-style diffusion class exposing "
+            "`_batched_sde_logprob`; the configured diffusion class "
+            f"({type(self.diffusion).__module__}.{type(self.diffusion).__qualname__}) "
+            "does not provide it."
+        )
 
         if vlm_generated_ids is not None:
             prompt_cache, vlm_outputs, action_history_embeds, prefill_seq_len = (
