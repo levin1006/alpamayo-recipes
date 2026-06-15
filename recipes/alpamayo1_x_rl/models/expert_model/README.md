@@ -13,14 +13,8 @@ separate vendored copy.
 This directory is intended for the AlpaGym closed-loop RL integration.
 
 It is not a standalone action expert RL recipe in `alpamayo-recipes`. In
-particular, this package does not add:
-
-- a public `cosmos-rl` launch entrypoint for action expert RL
-- a recipe TOML for action expert RL
-- a rollout backend, trainer, reward, or data packer for standalone action
-  expert RL in this repository
-- user-facing instructions for running open-loop action expert RL from this
-  repository
+particular, this package does not add user-facing instructions for running
+open-loop action expert RL from this repository.
 
 Existing `alpamayo1_x_rl` users should continue to treat the documented
 recipe entrypoints under `models/reasoning_vla/` as the supported open-loop
@@ -36,7 +30,3 @@ The expected boundary is:
   diffusion support for AlpaGym
 - AlpaGym: closed-loop environment interaction, orchestration, and launch
   integration
-
-If a standalone action expert RL recipe is released from this repository in the
-future, it should add its own entrypoint, TOML config, data packing, validation
-path, and README instructions rather than relying on this support package alone.
