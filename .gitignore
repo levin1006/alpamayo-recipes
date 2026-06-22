@@ -7,3 +7,4 @@ outputs/*
 *.egg-info
 output_stage*
 *.egg-info
+logs/

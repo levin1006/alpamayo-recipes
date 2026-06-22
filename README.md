@@ -32,3 +32,13 @@ Each recipe folder contains its own README with installation and training instru
 | `scripts/convert_release_config_to_training.py` | Convert a release checkpoint to training format |
 | `scripts/convert_cosmos_rl_checkpoint.py` | Convert a Cosmos-RL checkpoint to HuggingFace format |
 | `scripts/download_pai.py` | Download the Physical AI AV dataset from HuggingFace |
+| `scripts/check_pai_download_status.py` | Inventory local PAI components and nav-demo chunk coverage |
+| `scripts/plan_pai_nav_download.py` | Print or execute the required PAI nav-demo chunk download command |
+| `scripts/a15_sft_readme_00_setup_env.sh` | Set up the Alpamayo 1.5 SFT recipe environment in tmux |
+| `scripts/a15_sft_readme_01_download_pai_nav_chunks.sh` | Download README PAI nav-demo chunks in tmux |
+| `scripts/a15_sft_readme_02_download_checkpoint.sh` | Download `nvidia/Alpamayo-1.5-10B` in tmux |
+| `scripts/a15_sft_readme_03_convert_checkpoint_to_a1.sh` | Convert the raw Alpamayo 1.5 checkpoint to A1-format for SFT |
+| `scripts/a15_sft_readme_04_verify_a1_checkpoint.sh` | Verify the converted A1-format checkpoint metadata |
+| `scripts/a15_sft_readme_05_stage1_nav_smoke.sh` | Run bounded Stage 1 PAI nav SFT smoke in tmux |
+| `scripts/a15_sft_readme_06_stage2_nav_smoke.sh` | Run bounded Stage 2 PAI nav SFT smoke in tmux |
+| `scripts/a15_sft_readme_07_eval_stage2_nav.sh` | Evaluate the bounded Stage 2 nav checkpoint in tmux |
