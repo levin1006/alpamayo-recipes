@@ -2,10 +2,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/a15_sft_readme_config.sh
-source "${SCRIPT_DIR}/a15_sft_readme_config.sh"
+# shellcheck source=scripts/sft_readme_config.sh
+source "${SCRIPT_DIR}/sft_readme_config.sh"
 
-run_in_tmux_by_default "a15_sft_07_eval_stage2" "${SCRIPT_DIR}/a15_sft_readme_07_eval_stage2_nav.sh"
+# Evaluation is intentionally separate from SFT. Running it on the same 20-row
+# demo payload can only support an overfit/sanity interpretation, not a
+# generalization or autonomous-driving quality claim.
+run_in_tmux_by_default "sft_eval_stage2_nav" "${SCRIPT_DIR}/sft_03_eval_stage2_nav.sh" "$@"
+configure_gpu_selection "$@"
 
 activate_venv
 
@@ -15,15 +19,19 @@ require_dir "${PAI_DIR}" "PAI dataset dir"
 require_file "${NAV_ANNOTATIONS}" "nav annotations JSON"
 require_dir "${STAGE2_CKPT}" "Stage 2 checkpoint dir"
 
-log "Stage 2 evaluation will run."
-log "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
-log "nproc_per_node=${NPROC_PER_NODE}"
+log "Stage 2 nav evaluation"
+log "purpose=same-demo smoke/evidence collection only"
+log "config=sft_stage2_nav"
 log "stage2 checkpoint=${STAGE2_CKPT}"
 log "PAI=${PAI_DIR}"
 log "annotations=${NAV_ANNOTATIONS}"
+log "selected_gpus=${SFT_GPU_IDS}"
+log "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+log "nproc_per_node=${NPROC_PER_NODE}"
 log "max_eval_steps=${EVAL_MAX_STEPS}"
+log "W&B=disabled, trainer.report_to=none"
 
-confirm_exact "RUN_EVAL" "This step starts evaluation for the Stage 2 checkpoint."
+confirm_exact "RUN_EVAL" "This starts evaluation for the Stage 2 checkpoint."
 
 cd "${RECIPE_DIR}"
 

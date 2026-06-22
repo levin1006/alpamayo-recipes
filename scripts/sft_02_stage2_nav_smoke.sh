@@ -2,10 +2,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/a15_sft_readme_config.sh
-source "${SCRIPT_DIR}/a15_sft_readme_config.sh"
+# shellcheck source=scripts/sft_readme_config.sh
+source "${SCRIPT_DIR}/sft_readme_config.sh"
 
-run_in_tmux_by_default "a15_sft_06_stage2_nav" "${SCRIPT_DIR}/a15_sft_readme_06_stage2_nav_smoke.sh"
+# Stage 2 is not a repeat of Stage 1. It trains the trajectory expert path and
+# requires a Stage 1 checkpoint as input. Run this only after Stage 1 has been
+# reviewed and accepted as a narrow smoke result.
+run_in_tmux_by_default "sft_stage2_nav" "${SCRIPT_DIR}/sft_02_stage2_nav_smoke.sh" "$@"
+configure_gpu_selection "$@"
 
 activate_venv
 
@@ -18,19 +22,34 @@ require_file "${CKPT_DIR_A1}/config.json" "A1-format config.json"
 require_dir "${STAGE1_CKPT}" "Stage 1 checkpoint dir"
 require_file "${STAGE1_CKPT}/model.safetensors.index.json" "Stage 1 model index"
 
+if [[ -e "${STAGE2_OUTPUT_DIR}" && -z "$(latest_checkpoint "${STAGE2_OUTPUT_DIR}")" ]]; then
+  log "Stage 2 output dir already exists without a checkpoint: ${STAGE2_OUTPUT_DIR}"
+  log "set STAGE2_OUTPUT_DIR to a fresh path before running"
+  exit 2
+fi
+if [[ -n "$(latest_checkpoint "${STAGE2_OUTPUT_DIR}")" ]]; then
+  log "Stage 2 output dir already contains a checkpoint: ${STAGE2_OUTPUT_DIR}"
+  log "set STAGE2_OUTPUT_DIR to a fresh path before running"
+  exit 2
+fi
 mkdir -p "${STAGE2_OUTPUT_DIR}"
 
-log "Stage 2 nav smoke will start training."
-log "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
-log "nproc_per_node=${NPROC_PER_NODE}"
+log "Stage 2 nav smoke"
+log "purpose=bounded smoke for trajectory expert training after Stage 1"
+log "config=sft_stage2_nav"
 log "base checkpoint=${CKPT_DIR_A1}"
 log "stage1 checkpoint=${STAGE1_CKPT}"
+log "deepspeed=disabled by sft_stage2_nav"
 log "PAI=${PAI_DIR}"
 log "annotations=${NAV_ANNOTATIONS}"
 log "output=${STAGE2_OUTPUT_DIR}"
+log "selected_gpus=${SFT_GPU_IDS}"
+log "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+log "nproc_per_node=${NPROC_PER_NODE}"
 log "max_steps=${STAGE2_MAX_STEPS:-README epoch-driven run}"
+log "W&B=disabled, trainer.report_to=none"
 
-confirm_exact "RUN_STAGE2" "This step starts bounded Stage 2 nav SFT."
+confirm_exact "RUN_STAGE2" "This starts bounded Stage 2 nav SFT."
 
 cd "${RECIPE_DIR}"
 
@@ -51,7 +70,9 @@ overrides=(
 )
 
 if [[ -n "${STAGE2_MAX_STEPS}" ]]; then
-  overrides+=("trainer.max_steps=${STAGE2_MAX_STEPS}")
+  # Same Hydra rule as Stage 1: max_steps is a TrainingArguments field but not
+  # predeclared in the YAML config, so append it explicitly.
+  overrides+=("+trainer.max_steps=${STAGE2_MAX_STEPS}")
 fi
 
 HYDRA_FULL_ERROR=1 WANDB_MODE=disabled CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES}" \
@@ -61,4 +82,4 @@ HYDRA_FULL_ERROR=1 WANDB_MODE=disabled CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVI
 
 log "Stage 2 nav smoke finished"
 log "latest checkpoint: $(latest_checkpoint "${STAGE2_OUTPUT_DIR}")"
-log "next: scripts/a15_sft_readme_07_eval_stage2_nav.sh"
+log "next optional eval: scripts/sft_03_eval_stage2_nav.sh"
