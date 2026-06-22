@@ -2,14 +2,51 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/sft_readme_config.sh
-source "${SCRIPT_DIR}/sft_readme_config.sh"
+# shellcheck source=scripts/sft_demo_config.sh
+source "${SCRIPT_DIR}/sft_demo_config.sh"
 
-# This setup entrypoint replaces the old mental model of running 00, 01, 02,
-# 03, and 04 one by one. The goal is to leave the repo in exactly one state:
-# the recipe env exists, the PAI nav demo payload is present, and the
-# A1-format checkpoint has passed metadata verification.
-run_in_tmux_by_default "sft_setup" "${SCRIPT_DIR}/sft_00_setup.sh"
+# Run this after cloning the repo and preparing the container basics with
+# scripts/sft_demo_prepare_container_env.sh. This script owns recipe env sync, PAI nav
+# payload readiness, and optional checkpoint preparation; it does not install OS
+# packages or clone/pull git repositories.
+run_in_tmux_by_default "sft_demo_setup" "${SCRIPT_DIR}/sft_demo_00_setup.sh" "$@"
+
+DATA_ONLY="no"
+
+usage_setup_args() {
+  cat <<'USAGE'
+Usage:
+  scripts/sft_demo_00_setup.sh [--data-only]
+
+Prerequisite:
+  Clone/pull the repo first, then run scripts/sft_demo_prepare_container_env.sh.
+
+Options:
+  --data-only   Prepare only the nav annotation JSON and PAI nav chunk payload.
+                This still syncs the recipe environment because the downloader
+                and status checker need Python dependencies.
+                The runbook no-argument wrapper is scripts/sft_demo_00_prepare_data.sh.
+  -h, --help    Show this help.
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --data-only)
+      DATA_ONLY="yes"
+      shift
+      ;;
+    --help|-h)
+      usage_setup_args
+      exit 0
+      ;;
+    *)
+      log "unknown setup argument: $1"
+      usage_setup_args
+      exit 2
+      ;;
+  esac
+done
 
 SETUP_LOG_DIR="${SETUP_LOG_DIR:-${REPO_ROOT}/logs/sft_setup}"
 PAI_STATUS_PREFIX="${PAI_STATUS_PREFIX:-$(date +%Y%m%d_%H%M%S)_pai_nav_status}"
@@ -25,6 +62,7 @@ print_setup_overview() {
   log "CKPT_DIR_RAW=${CKPT_DIR_RAW}"
   log "HF_CACHE_RAW_SNAPSHOT=${HF_CACHE_RAW_SNAPSHOT}"
   log "CKPT_DIR_A1=${CKPT_DIR_A1}"
+  log "DATA_ONLY=${DATA_ONLY}"
   log "logs=${SETUP_LOG_DIR}"
 }
 
@@ -137,6 +175,64 @@ write_pai_status() {
     --prefix "${PAI_STATUS_PREFIX}"
 }
 
+has_required_pai_metadata() {
+  local missing=()
+  local required_paths=(
+    "${PAI_DIR}/features.csv"
+    "${PAI_DIR}/clip_index.parquet"
+    "${PAI_DIR}/metadata/feature_presence.parquet"
+  )
+
+  for path in "${required_paths[@]}"; do
+    if [[ ! -f "${path}" ]]; then
+      missing+=("${path}")
+    fi
+  done
+
+  if [[ "${#missing[@]}" -gt 0 ]]; then
+    log "PAI metadata is not present yet"
+    for path in "${missing[@]}"; do
+      log "missing metadata: ${path}"
+    done
+    return 1
+  fi
+
+  return 0
+}
+
+has_hf_auth() {
+  python - <<'PY'
+from huggingface_hub import get_token
+
+raise SystemExit(0 if get_token() else 1)
+PY
+}
+
+ensure_hf_auth_for_download() {
+  if [[ -n "${HF_TOKEN:-}" ]]; then
+    log "HF_TOKEN is set"
+    return
+  fi
+
+  if has_hf_auth; then
+    log "Hugging Face cached auth token is available"
+    return
+  fi
+
+  log "Hugging Face auth is required to download the PAI nav demo payload"
+  log "Enter an HF token for this container session. Input is hidden."
+  local token
+  read -rsp "HF_TOKEN: " token
+  printf '\n'
+
+  if [[ -z "${token}" ]]; then
+    log "HF_TOKEN was empty; cannot download PAI payload"
+    exit 2
+  fi
+
+  export HF_TOKEN="${token}"
+}
+
 assert_pai_status_ready() {
   local summary_json="${SETUP_LOG_DIR}/${PAI_STATUS_PREFIX}__summary.json"
 
@@ -180,18 +276,14 @@ ensure_pai_nav_payload() {
   log "[3/6] PAI nav demo payload"
   require_file "${NAV_ANNOTATIONS}" "nav annotations JSON"
 
-  if [[ -d "${PAI_DIR}" ]] && write_pai_status && assert_pai_status_ready; then
+  if [[ -d "${PAI_DIR}" ]] && has_required_pai_metadata && write_pai_status && assert_pai_status_ready; then
     log "PAI nav payload is already ready"
     return
   fi
 
   log "PAI nav payload is missing or incomplete"
   log "This can download dataset chunks and may take significant time/storage."
-  if [[ -z "${HF_TOKEN:-}" ]]; then
-    log "HF_TOKEN is not set; continuing only works if Hugging Face auth is already cached"
-  fi
-
-  confirm_exact "DOWNLOAD_PAI" "Download the README nav-demo PAI chunks now?"
+  ensure_hf_auth_for_download
 
   mkdir -p "${PAI_DIR}"
   cd "${REPO_ROOT}"
@@ -312,9 +404,13 @@ print_setup_overview
 setup_recipe_environment
 ensure_nav_annotations
 ensure_pai_nav_payload
+if [[ "${DATA_ONLY}" == "yes" ]]; then
+  log "data-only setup complete"
+  exit 0
+fi
 ensure_raw_checkpoint_input
 convert_checkpoint_if_needed
 verify_a1_checkpoint
 
 log "setup complete"
-log "next Stage 1 smoke: scripts/sft_01_stage1_nav_smoke.sh"
+log "next Stage 1 smoke: scripts/sft_demo_01_stage1_nav_smoke.sh"

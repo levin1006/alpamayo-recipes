@@ -2,13 +2,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/sft_readme_config.sh
-source "${SCRIPT_DIR}/sft_readme_config.sh"
+# shellcheck source=scripts/sft_demo_config.sh
+source "${SCRIPT_DIR}/sft_demo_config.sh"
 
 # Stage 2 is not a repeat of Stage 1. It trains the trajectory expert path and
 # requires a Stage 1 checkpoint as input. Run this only after Stage 1 has been
 # reviewed and accepted as a narrow smoke result.
-run_in_tmux_by_default "sft_stage2_nav" "${SCRIPT_DIR}/sft_02_stage2_nav_smoke.sh" "$@"
+run_in_tmux_by_default "sft_demo_stage2_nav" "${SCRIPT_DIR}/sft_demo_02_stage2_nav_smoke.sh" "$@"
 configure_gpu_selection "$@"
 
 activate_venv
@@ -82,4 +82,4 @@ HYDRA_FULL_ERROR=1 WANDB_MODE=disabled CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVI
 
 log "Stage 2 nav smoke finished"
 log "latest checkpoint: $(latest_checkpoint "${STAGE2_OUTPUT_DIR}")"
-log "next optional eval: scripts/sft_03_eval_stage2_nav.sh"
+log "next optional eval: scripts/sft_demo_03_eval_stage2_nav.sh"

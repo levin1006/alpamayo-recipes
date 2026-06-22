@@ -4,6 +4,7 @@ __pycache__/
 **/.venv/
 dist/
 outputs/*
+recipes/alpamayo1_5_sft/outputs/
 *.egg-info
 output_stage*
 *.egg-info

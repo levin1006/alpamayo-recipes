@@ -2,13 +2,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/sft_readme_config.sh
-source "${SCRIPT_DIR}/sft_readme_config.sh"
+# shellcheck source=scripts/sft_demo_config.sh
+source "${SCRIPT_DIR}/sft_demo_config.sh"
 
 # Evaluation is intentionally separate from SFT. Running it on the same 20-row
 # demo payload can only support an overfit/sanity interpretation, not a
 # generalization or autonomous-driving quality claim.
-run_in_tmux_by_default "sft_eval_stage2_nav" "${SCRIPT_DIR}/sft_03_eval_stage2_nav.sh" "$@"
+run_in_tmux_by_default "sft_demo_eval_stage2_nav" "${SCRIPT_DIR}/sft_demo_03_eval_stage2_nav.sh" "$@"
 configure_gpu_selection "$@"
 
 activate_venv

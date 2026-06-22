@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Shared settings for the Alpamayo 1.5 SFT README step scripts.
+# Shared settings for the Alpamayo 1.5 SFT helper scripts.
 #
-# Edit the variables below, override them from the shell before running a step,
-# or pass --gpus to the training/eval scripts.
+# Edit the defaults below to tune the runbook. The scripts can still accept
+# environment overrides, but the documented path uses no CLI environment setup.
 
 set -euo pipefail
 
@@ -13,9 +13,20 @@ VENV_DIR="${RECIPE_DIR}/.venv"
 DEEPSPEED_CONFIG="${RECIPE_DIR}/configs/deepspeed/zero2.json"
 
 PAI_CHUNK_IDS="${PAI_CHUNK_IDS:-214 224 276 317 420 727 728 968 982 1519 1657 1984 2277 2368 2372 2447 2599 2634 2868}"
-PAI_DIR="${PAI_DIR:-/mnt/zfs_pool/physical_ai_av}"
+SFT_DEFAULT_GPU_IDS="${SFT_DEFAULT_GPU_IDS:-0}"
+SFT_RUN_ID="${SFT_RUN_ID:-$(date +%Y%m%d_%H%M%S)}"
 
-if [[ -d /mnt/zfs_pool ]]; then
+if [[ -d /data || -w / ]]; then
+  DEFAULT_PAI_DIR="/data/datasets/physical_ai_av"
+else
+  DEFAULT_PAI_DIR="${HOME}/datasets/physical_ai_av"
+fi
+
+PAI_DIR="${PAI_DIR:-${DEFAULT_PAI_DIR}}"
+
+if [[ -d /data || -w / ]]; then
+  DEFAULT_ARTIFACT_ROOT="/data/alpamayo_sft_artifacts"
+elif [[ -d /mnt/zfs_pool ]]; then
   DEFAULT_ARTIFACT_ROOT="/mnt/zfs_pool/alpamayo_sft_artifacts"
 else
   DEFAULT_ARTIFACT_ROOT="${HOME}/alpamayo_sft_artifacts"
@@ -35,8 +46,8 @@ NPROC_PER_NODE="${NPROC_PER_NODE:-}"
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-}"
 SFT_GPU_IDS="${SFT_GPU_IDS:-}"
 
-STAGE1_OUTPUT_DIR="${STAGE1_OUTPUT_DIR:-${ARTIFACT_ROOT}/output_stage1_nav_smoke}"
-STAGE2_OUTPUT_DIR="${STAGE2_OUTPUT_DIR:-${ARTIFACT_ROOT}/output_stage2_nav_smoke}"
+STAGE1_OUTPUT_DIR="${STAGE1_OUTPUT_DIR:-${ARTIFACT_ROOT}/output_stage1_nav_smoke_${SFT_RUN_ID}}"
+STAGE2_OUTPUT_DIR="${STAGE2_OUTPUT_DIR:-${ARTIFACT_ROOT}/output_stage2_nav_smoke_${SFT_RUN_ID}}"
 
 # Keep the first training run bounded by default. Set STAGE1_MAX_STEPS="" to use
 # the README's epoch-driven overfit run.
@@ -51,7 +62,7 @@ STAGE2_SAVE_STEPS="${STAGE2_SAVE_STEPS:-20}"
 EVAL_MAX_STEPS="${EVAL_MAX_STEPS:-5}"
 
 log() {
-  printf '[sft_readme] %s\n' "$*"
+  printf '[sft_demo] %s\n' "$*"
 }
 
 run_in_tmux_by_default() {
@@ -79,12 +90,13 @@ run_in_tmux_by_default() {
 usage_gpu_args() {
   cat <<'USAGE'
 GPU selection:
-  --gpus 2          Use one visible GPU, physical GPU 2.
-  --gpus 2,3,4      Use physical GPUs 2, 3, and 4.
+  --gpus 0          Use the default single visible GPU.
+  --gpus 0,1,2      Use visible GPUs 0, 1, and 2.
+  --gpus 0,1,2,3,4  Use all five visible GPUs when available.
 
 Environment equivalents:
-  SFT_GPU_IDS=2,3,4
-  CUDA_VISIBLE_DEVICES=2,3,4
+  SFT_GPU_IDS=0
+  CUDA_VISIBLE_DEVICES=0
 
 NPROC_PER_NODE defaults to the number of selected GPU IDs. Override it only
 when intentionally running fewer processes than visible GPUs.
@@ -109,7 +121,7 @@ configure_gpu_selection() {
     case "$1" in
       --gpus)
         if [[ $# -lt 2 || -z "$2" ]]; then
-          log "--gpus requires a comma-separated GPU list, for example: --gpus 2,3,4"
+          log "--gpus requires a comma-separated GPU list, for example: --gpus 0,1,2"
           exit 2
         fi
         SFT_GPU_IDS="$2"
@@ -132,13 +144,13 @@ configure_gpu_selection() {
   done
 
   if [[ -z "${SFT_GPU_IDS}" ]]; then
-    SFT_GPU_IDS="${CUDA_VISIBLE_DEVICES:-0}"
+    SFT_GPU_IDS="${CUDA_VISIBLE_DEVICES:-${SFT_DEFAULT_GPU_IDS}}"
   fi
 
   SFT_GPU_IDS="${SFT_GPU_IDS//[[:space:]]/}"
   if [[ ! "${SFT_GPU_IDS}" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
     log "invalid GPU list: ${SFT_GPU_IDS}"
-    log "use a comma-separated list of GPU indexes, for example: --gpus 2,3,4"
+    log "use a comma-separated list of GPU indexes, for example: --gpus 0,1,2"
     exit 2
   fi
 
@@ -176,7 +188,7 @@ require_dir() {
 activate_venv() {
   if [[ ! -x "${VENV_DIR}/bin/python" ]]; then
     log "venv is missing: ${VENV_DIR}"
-    log "run scripts/sft_readme_00_setup_env.sh first"
+    log "run scripts/sft_demo_00_setup.sh first"
     exit 2
   fi
   # shellcheck disable=SC1091

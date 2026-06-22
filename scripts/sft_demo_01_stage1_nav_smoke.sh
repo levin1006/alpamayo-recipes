@@ -2,8 +2,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/sft_readme_config.sh
-source "${SCRIPT_DIR}/sft_readme_config.sh"
+# shellcheck source=scripts/sft_demo_config.sh
+source "${SCRIPT_DIR}/sft_demo_config.sh"
 
 # Stage 1 answers the first wiring question:
 # Can the base VLM SFT path learn from the tiny 20-row PAI nav demo payload?
@@ -11,7 +11,7 @@ source "${SCRIPT_DIR}/sft_readme_config.sh"
 # This is not a quality or generalization test. It is a bounded overfit smoke:
 # if loss cannot move on these same rows, model/dataset/collator/trainer wiring
 # is suspect.
-run_in_tmux_by_default "sft_stage1_nav" "${SCRIPT_DIR}/sft_01_stage1_nav_smoke.sh" "$@"
+run_in_tmux_by_default "sft_demo_stage1_nav" "${SCRIPT_DIR}/sft_demo_01_stage1_nav_smoke.sh" "$@"
 configure_gpu_selection "$@"
 
 activate_venv
