@@ -19,6 +19,11 @@ require_dir "${PAI_DIR}" "PAI dataset dir"
 require_file "${NAV_ANNOTATIONS}" "nav annotations JSON"
 require_dir "${CKPT_DIR_A1}" "A1-format checkpoint dir"
 require_file "${CKPT_DIR_A1}/config.json" "A1-format config.json"
+if [[ -z "${STAGE1_CKPT}" ]]; then
+  log "missing Stage 1 checkpoint under: ${STAGE1_OUTPUT_DIR}"
+  log "run and review scripts/sft_demo_01_stage1_nav_smoke.sh before Stage 2"
+  exit 2
+fi
 require_dir "${STAGE1_CKPT}" "Stage 1 checkpoint dir"
 require_file "${STAGE1_CKPT}/model.safetensors.index.json" "Stage 1 model index"
 

@@ -13,7 +13,7 @@ VENV_DIR="${RECIPE_DIR}/.venv"
 DEEPSPEED_CONFIG="${RECIPE_DIR}/configs/deepspeed/zero2.json"
 
 PAI_CHUNK_IDS="${PAI_CHUNK_IDS:-214 224 276 317 420 727 728 968 982 1519 1657 1984 2277 2368 2372 2447 2599 2634 2868}"
-SFT_DEFAULT_GPU_IDS="${SFT_DEFAULT_GPU_IDS:-0}"
+SFT_DEFAULT_GPU_IDS="${SFT_DEFAULT_GPU_IDS:-4}"
 SFT_RUN_ID="${SFT_RUN_ID:-$(date +%Y%m%d_%H%M%S)}"
 
 if [[ -d /data || -w / ]]; then
@@ -51,15 +51,22 @@ STAGE2_OUTPUT_DIR="${STAGE2_OUTPUT_DIR:-${ARTIFACT_ROOT}/output_stage2_nav_smoke
 
 # Keep the first training run bounded by default. Set STAGE1_MAX_STEPS="" to use
 # the README's epoch-driven overfit run.
-STAGE1_MAX_STEPS="${STAGE1_MAX_STEPS:-20}"
+STAGE1_MAX_STEPS="${STAGE1_MAX_STEPS:-300}"
 STAGE1_NUM_TRAIN_EPOCHS="${STAGE1_NUM_TRAIN_EPOCHS:-1}"
-STAGE1_SAVE_STEPS="${STAGE1_SAVE_STEPS:-20}"
+STAGE1_SAVE_STEPS="${STAGE1_SAVE_STEPS:-300}"
+STAGE1_LOGGING_STEPS="${STAGE1_LOGGING_STEPS:-1}"
+STAGE1_WARMUP_STEPS="${STAGE1_WARMUP_STEPS:-5}"
+STAGE1_REPORT_TO="${STAGE1_REPORT_TO:-tensorboard}"
+STAGE1_TENSORBOARD_DIR="${STAGE1_TENSORBOARD_DIR:-${STAGE1_OUTPUT_DIR}/tensorboard}"
 
 STAGE2_MAX_STEPS="${STAGE2_MAX_STEPS:-20}"
 STAGE2_NUM_TRAIN_EPOCHS="${STAGE2_NUM_TRAIN_EPOCHS:-1}"
 STAGE2_SAVE_STEPS="${STAGE2_SAVE_STEPS:-20}"
 
 EVAL_MAX_STEPS="${EVAL_MAX_STEPS:-5}"
+
+SFT_RUN_LOG_DIR="${SFT_RUN_LOG_DIR:-${REPO_ROOT}/logs/sft_runs}"
+SFT_TMUX_HOLD="${SFT_TMUX_HOLD:-yes}"
 
 log() {
   printf '[sft_demo] %s\n' "$*"
@@ -74,29 +81,127 @@ run_in_tmux_by_default() {
     return
   fi
 
+  for arg in "$@"; do
+    if [[ "${arg}" == "--help" || "${arg}" == "-h" ]]; then
+      return
+    fi
+  done
+
   if ! command -v tmux >/dev/null 2>&1; then
     log "tmux is required for the default execution path but was not found on PATH"
     log "install tmux, or run with SFT_DISABLE_TMUX=yes to execute in the current shell"
     exit 127
   fi
 
+  mkdir -p "${SFT_RUN_LOG_DIR}"
+
+  local log_base="${SFT_RUN_ID}_${session_name}"
+  local log_file="${SFT_RUN_LOG_DIR}/${log_base}.log"
+  local done_file="${SFT_RUN_LOG_DIR}/${log_base}.done"
+  local failed_file="${SFT_RUN_LOG_DIR}/${log_base}.failed"
+
   log "starting inside tmux session: ${session_name}"
   log "attach later with: tmux attach -t ${session_name}"
+  log "log file: ${log_file}"
+  log "done marker: ${done_file}"
+  log "failed marker: ${failed_file}"
+
+  local runner
+  read -r -d '' runner <<'BASH' || true
+set -o pipefail
+
+script_path="$1"
+shift
+
+mkdir -p "$(dirname "${SFT_TMUX_LOG_FILE}")"
+rm -f "${SFT_TMUX_DONE_FILE}" "${SFT_TMUX_FAILED_FILE}"
+
+write_result_marker() {
+  local status="$1"
+
+  printf '[sft_demo] finished_at=%s\n' "$(date -Is)"
+  printf '[sft_demo] exit_status=%s\n' "${status}"
+
+  if [[ "${status}" -eq 0 ]]; then
+    touch "${SFT_TMUX_DONE_FILE}"
+    rm -f "${SFT_TMUX_FAILED_FILE}"
+    printf '[sft_demo] done_marker=%s\n' "${SFT_TMUX_DONE_FILE}"
+  else
+    touch "${SFT_TMUX_FAILED_FILE}"
+    rm -f "${SFT_TMUX_DONE_FILE}"
+    printf '[sft_demo] failed_marker=%s\n' "${SFT_TMUX_FAILED_FILE}"
+  fi
+}
+
+handle_signal() {
+  local status="$1"
+  {
+    printf '[sft_demo] interrupted_by_signal exit_status=%s\n' "${status}"
+    write_result_marker "${status}"
+  } 2>&1 | tee -a "${SFT_TMUX_LOG_FILE}"
+  exit "${status}"
+}
+
+trap 'handle_signal 130' INT
+trap 'handle_signal 143' TERM
+trap 'handle_signal 129' HUP
+
+{
+  printf '[sft_demo] session=%s\n' "${SFT_TMUX_SESSION}"
+  printf '[sft_demo] started_at=%s\n' "$(date -Is)"
+  printf '[sft_demo] command=%q' "${script_path}"
+  for arg in "$@"; do
+    printf ' %q' "${arg}"
+  done
+  printf '\n'
+  printf '[sft_demo] log_file=%s\n' "${SFT_TMUX_LOG_FILE}"
+
+  "${script_path}" "$@"
+  status=$?
+
+  write_result_marker "${status}"
+
+  exit "${status}"
+} 2>&1 | tee -a "${SFT_TMUX_LOG_FILE}"
+
+status="${PIPESTATUS[0]}"
+if [[ "${SFT_TMUX_HOLD}" != "no" ]]; then
+  printf '\n[sft_demo] session complete; press Enter to close this tmux pane... '
+  read -r _
+fi
+exit "${status}"
+BASH
+
   local command
-  printf -v command '%q ' "${script_path}" "$@"
+  printf -v command '%q ' \
+    env \
+    "SFT_TMUX_SESSION=${session_name}" \
+    "SFT_TMUX_LOG_FILE=${log_file}" \
+    "SFT_TMUX_DONE_FILE=${done_file}" \
+    "SFT_TMUX_FAILED_FILE=${failed_file}" \
+    "SFT_TMUX_HOLD=${SFT_TMUX_HOLD}" \
+    bash -lc "${runner}" sft_tmux_runner "${script_path}" "$@"
+
+  if [[ ! -t 1 ]]; then
+    log "no interactive terminal detected; starting detached tmux session"
+    tmux new-session -d -s "${session_name}" "${command}"
+    exit 0
+  fi
+
   exec tmux new-session -A -s "${session_name}" "${command}"
 }
 
 usage_gpu_args() {
   cat <<'USAGE'
 GPU selection:
-  --gpus 0          Use the default single visible GPU.
+  --gpus 4          Use the default reserved GPU for this H100 demo run.
+  --gpus 0          Use a different single visible GPU.
   --gpus 0,1,2      Use visible GPUs 0, 1, and 2.
   --gpus 0,1,2,3,4  Use all five visible GPUs when available.
 
 Environment equivalents:
-  SFT_GPU_IDS=0
-  CUDA_VISIBLE_DEVICES=0
+  SFT_GPU_IDS=4
+  CUDA_VISIBLE_DEVICES=4
 
 NPROC_PER_NODE defaults to the number of selected GPU IDs. Override it only
 when intentionally running fewer processes than visible GPUs.
@@ -210,5 +315,8 @@ confirm_exact() {
 
 latest_checkpoint() {
   local output_dir="$1"
+  if [[ -z "${output_dir}" || ! -d "${output_dir}" ]]; then
+    return 0
+  fi
   find "${output_dir}" -maxdepth 1 -type d -name 'checkpoint-*' 2>/dev/null | sort -V | tail -1
 }

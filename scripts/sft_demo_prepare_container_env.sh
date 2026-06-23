@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Run this after cloning the repo inside a disposable GPU container.
-# It prepares only container-local tooling and persistent /data directories.
+# Run this inside the GPU container after the host workspace is mounted at
+# /workspace/alpamayo-recipes. It prepares only container-local tooling and
+# persistent dataset/artifact directories.
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONTAINER_HOME="${CONTAINER_HOME:-/tmp/sft_container_home}"
 PAI_DIR="${PAI_DIR:-/data/datasets/physical_ai_av}"
 ARTIFACT_ROOT="${ARTIFACT_ROOT:-/data/alpamayo_sft_artifacts}"
@@ -14,7 +17,7 @@ log() {
 
 install_os_packages_if_needed() {
   local missing=()
-  for command_name in git curl ca-certificates tmux; do
+  for command_name in git curl tmux; do
     if ! command -v "${command_name}" >/dev/null 2>&1; then
       missing+=("${command_name}")
     fi
@@ -45,7 +48,7 @@ install_uv_if_needed() {
 
   log "installing uv under ${CONTAINER_HOME}"
   mkdir -p "${CONTAINER_HOME}"
-  HOME="${CONTAINER_HOME}" curl -LsSf https://astral.sh/uv/install.sh | sh
+  curl -LsSf https://astral.sh/uv/install.sh | HOME="${CONTAINER_HOME}" sh
 
   local uv_path="${CONTAINER_HOME}/.local/bin/uv"
   if [[ ! -x "${uv_path}" ]]; then

@@ -19,7 +19,8 @@ Usage:
   scripts/sft_demo_00_setup.sh [--data-only]
 
 Prerequisite:
-  Clone/pull the repo first, then run scripts/sft_demo_prepare_container_env.sh.
+  Mount the H100 host workspace at /workspace/alpamayo-recipes, then run
+  scripts/sft_demo_prepare_container_env.sh.
 
 Options:
   --data-only   Prepare only the nav annotation JSON and PAI nav chunk payload.

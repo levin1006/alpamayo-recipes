@@ -17,6 +17,11 @@ STAGE2_CKPT="${STAGE2_CKPT:-$(latest_checkpoint "${STAGE2_OUTPUT_DIR}")}"
 
 require_dir "${PAI_DIR}" "PAI dataset dir"
 require_file "${NAV_ANNOTATIONS}" "nav annotations JSON"
+if [[ -z "${STAGE2_CKPT}" ]]; then
+  log "missing Stage 2 checkpoint under: ${STAGE2_OUTPUT_DIR}"
+  log "run and review scripts/sft_demo_02_stage2_nav_smoke.sh before eval"
+  exit 2
+fi
 require_dir "${STAGE2_CKPT}" "Stage 2 checkpoint dir"
 
 log "Stage 2 nav evaluation"

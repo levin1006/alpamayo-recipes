@@ -48,7 +48,11 @@ log "selected_gpus=${SFT_GPU_IDS}"
 log "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 log "nproc_per_node=${NPROC_PER_NODE}"
 log "max_steps=${STAGE1_MAX_STEPS:-README epoch-driven run}"
-log "W&B=disabled, trainer.report_to=none"
+log "warmup_steps=${STAGE1_WARMUP_STEPS}"
+log "logging_steps=${STAGE1_LOGGING_STEPS}"
+log "report_to=${STAGE1_REPORT_TO}"
+log "tensorboard=${STAGE1_TENSORBOARD_DIR}"
+log "tensorboard command: tensorboard --logdir ${STAGE1_TENSORBOARD_DIR} --host 0.0.0.0 --port 6006"
 
 confirm_exact "RUN_STAGE1" "This starts bounded Stage 1 nav SFT."
 
@@ -63,11 +67,14 @@ overrides=(
   "data.val_dataset.local_dir=${PAI_DIR}"
   "data.val_dataset.annotations_path=${NAV_ANNOTATIONS}"
   "trainer.deepspeed=${DEEPSPEED_CONFIG}"
-  "trainer.report_to=none"
+  "trainer.report_to=${STAGE1_REPORT_TO}"
+  "trainer.logging_steps=${STAGE1_LOGGING_STEPS}"
+  "trainer.warmup_steps=${STAGE1_WARMUP_STEPS}"
   "trainer.num_train_epochs=${STAGE1_NUM_TRAIN_EPOCHS}"
   "trainer.save_steps=${STAGE1_SAVE_STEPS}"
   "trainer.save_total_limit=1"
   "paths.output_dir=${STAGE1_OUTPUT_DIR}"
+  "+trainer.logging_dir=${STAGE1_TENSORBOARD_DIR}"
 )
 
 if [[ -n "${STAGE1_MAX_STEPS}" ]]; then
