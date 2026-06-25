@@ -2,7 +2,7 @@
 doc_type: note
 status: active
 created_at: 2026-06-22 15:38:20
-updated_at: 2026-06-23 09:53:30
+updated_at: 2026-06-25 06:58:00
 ---
 
 # External Server SFT Demo Runbook
@@ -467,13 +467,51 @@ demo sample: the checkpoint has learned the tiny nav set and is suitable as a
 Stage 2 smoke-test input. The result still does not claim held-out validation
 quality or broader PAI/a2z readiness.
 
+## Stage 1 and Stage 2 Artifact Interpretation
+
+The Stage 1 and Stage 2 outputs have different load contracts. Do not treat
+every checkpoint directory as the same kind of full Alpamayo 1.5 runtime model.
+
+| Artifact | Current interpretation | Current 20-row mean ADE |
+| --- | --- | ---: |
+| matched official baseline | 2026-06-18 Alpamayo 1.5 baseline tensor set used for fair overlay comparison | `1.751832239329815` |
+| Stage 1-only export | VLM-side nav overfit result exported through the recipes contract; not a standalone official `Alpamayo1_5.from_pretrained` checkpoint | `0.09993635825812816` |
+| current Stage 2-only-ish export | Diagnostic result from a Stage 2 action expert run whose VLM stayed baseline-like; do not interpret as `Stage1-improved VLM + Stage2 action expert` | `1.4155602216720582` |
+
+Comparison summary from the matched overlay:
+
+- Stage 1 better than Stage 2: `20/20`;
+- Stage 2 better than matched official baseline: `7/20`;
+- Stage 1-only strongly overfit the 20-row nav demo;
+- current Stage 2-only-ish improved the mean over baseline but was unstable and
+  worse than Stage 1 on every row.
+
+The intended Stage 2 experiment was `Stage1-improved VLM + Stage2 action
+expert`. The current Stage 2 checkpoint should not be read that way. Its config
+included `model.stage1_vlm_checkpoint_path`, but the load log showed:
+
+```text
+Loaded 750 VLM tensors from .../checkpoint-300 (missing=750, unexpected=750)
+```
+
+A read-only tensor probe then showed that a Stage 2 VLM tensor was bit-exact
+with the baseline A1 tensor and not equal to the Stage 1 tensor:
+
+```text
+stage2 vs base_a1: max_abs=0.0, mean_abs=0.0, allclose=True
+stage2 vs stage1: max_abs=0.0003662109375, mean_abs=8.058943785727024e-05, allclose=False
+```
+
+So the current Stage 2 result is useful diagnostic evidence, but it is not the
+canonical `Stage1 + Stage2 both SFT` result.
+
 ## Stage 2 Meaning
 
 Stage 2 is the trajectory/action expert stage, not another front-end VLM SFT
 stage. `sft_stage2_nav.yaml` uses `models/ar1_5_expert`, which maps to
 `TrainableAlpamayoR1`.
 
-The Stage 2 model:
+The intended Stage 2 model contract:
 
 - loads the converted A1-format base checkpoint as `pretrained_model_name_or_path`;
 - loads the Stage 1 VLM checkpoint through `stage1_vlm_checkpoint_path`;
@@ -484,6 +522,269 @@ The Stage 2 model:
 So Stage 2 is the back-end action model / trajectory diffusion expert training
 step. It should run only after the Stage 1 checkpoint has been reviewed as a
 usable input.
+
+### Author Demo Reproduction Status
+
+The current checkpoint review should be read as an environment/demo
+reproduction check, not as a search for a better training strategy.
+
+Stage 1 status: reproduced.
+
+- README expectation: the 20 nav samples are an overfit smoke set and the loss
+  should drop near zero after hundreds of steps.
+- Verified artifact:
+  `/data/alpamayo_sft_artifacts/output_stage1_nav_smoke_stage1overfit300_20260623_104948/checkpoint-300`.
+- Trainer state: `global_step=300`, `epoch=150.0`.
+- Loss tail: step 291-300 stayed around `0.0045` to `0.0054`, with step 300
+  loss `0.0048`.
+- Interpretation: the Stage 1 nav demo path, dataset wiring, nav annotations,
+  converted A1-format checkpoint, and recipe training loop are sufficiently
+  reproduced for the README-style 20-sample overfit smoke.
+
+Stage 2 status: reproduced through the README/evaluate contract for the default
+row13/chunk-2868 eval scope.
+
+- README expectation: train Stage 2 from the converted A1-format base plus a
+  Stage 1 checkpoint, then evaluate the Stage 2 checkpoint with
+  `alpamayo1_5_sft.evaluate_hf`.
+- Important scope detail: `configs/sft_stage2_nav.yaml` uses
+  `data.val_dataset.chunk_ids: [2868]`. In the 20-row nav demo annotation file,
+  chunk `2868` corresponds only to row13
+  (`nav_text="Turn left in 13m"`). It does not evaluate row07 or all 20 rows.
+- Therefore row07 overlay checks and 20-row compact exports are useful local
+  diagnostics, but they are not the same as the README Stage 2 eval contract.
+- Attempted official eval command, without new training:
+
+```bash
+cd /workspace/alpamayo-recipes
+printf 'RUN_EVAL\n' | \
+  env SFT_DISABLE_TMUX=yes \
+      STAGE2_OUTPUT_DIR=/data/alpamayo_sft_artifacts/output_stage2_nav_overfit300_stage2overfit300_plan_20260623_144245 \
+      EVAL_MAX_STEPS=-1 \
+      scripts/sft_demo_03_eval_stage2_nav.sh --gpus 4
+```
+
+- Log:
+  `/workspace/alpamayo-recipes/logs/sft_runs/author_eval_stage2_20260625_063958.log`.
+- Result: completed after authenticating the container for the gated
+  `nvidia/Cosmos-Reason2-8B` processor/config dependency.
+- Dataset filter evidence:
+  `Filtered out 19/20 annotated samples whose clip chunks aren't in chunk_ids=[2868]; keeping 1.`
+- Official default Stage 2 eval metrics:
+
+| Metric | Value |
+| --- | ---: |
+| `val/count` | `1.0000` |
+| `val/metric/ade` | `1.3345` |
+| `val/metric/ade/by_t=3.0` | `0.3792` |
+| `val/metric/corner_distance` | `0.6229` |
+| `val/metric/min_ade` | `0.6184` |
+| `val/metric/min_ade/by_t=0.5` | `0.0056` |
+| `val/metric/min_ade/by_t=1.0` | `0.0199` |
+| `val/metric/min_ade/by_t=3.0` | `0.1613` |
+| `val/metric/min_ade/by_t=5.0` | `0.4211` |
+
+Interpretation:
+
+- The author-style Stage 2 eval path now runs end-to-end in this container.
+- Its default scope is row13/chunk 2868, not the full 20-row nav demo set.
+- The existing 20-row compact exporter/overlay results remain a broader local
+  diagnostic benchmark, not a contradiction of the official eval scope.
+- Further Stage 2 training-strategy changes should not be made until this
+  distinction is kept explicit in reports and comparisons.
+
+### Loader Contract Pitfall
+
+Before any future Stage 2 run, prove that the Stage 1 VLM weights are actually
+loaded into the Stage 2 model. The current failure mode is subtle: Stage 1
+checkpoint keys are stored with a `vlm.` prefix, while Stage 2 calls
+`load_alpamayo1_vlm(stage1_vlm_checkpoint_path, self.vlm)` on the nested VLM
+module. If the loader passes `vlm.*` keys directly into the nested module, the
+load can report the same number of missing and unexpected keys and silently leave
+the Stage 2 VLM baseline-like.
+
+Required pre-training gate for the next Stage 2 run:
+
+1. Instantiate the Stage 2 model with `stage1_vlm_checkpoint_path`.
+2. Confirm the VLM load log does not show broad `missing=750, unexpected=750`
+   style mismatch.
+3. Probe at least one small VLM tensor and confirm Stage 2 equals Stage 1, not
+   the baseline A1 wrapper.
+4. Record the exact key, max/mean absolute differences, and `allclose` results
+   before starting training.
+
+Example read-only tensor gate:
+
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
+
+import torch
+from safetensors import safe_open
+
+key = "vlm.model.language_model.layers.0.input_layernorm.weight"
+roots = {
+    "base_a1": Path("/data/alpamayo_sft_artifacts/Alpamayo-1.5-10B-A1-format"),
+    "stage1": Path("/data/alpamayo_sft_artifacts/output_stage1_nav_smoke_stage1overfit300_20260623_104948/checkpoint-300"),
+    "stage2": Path("/data/alpamayo_sft_artifacts/output_stage2_nav_<new_run>/checkpoint-300"),
+}
+
+tensors = {}
+for name, root in roots.items():
+    weight_map = json.loads((root / "model.safetensors.index.json").read_text())["weight_map"]
+    with safe_open(str(root / weight_map[key]), framework="pt", device="cpu") as f:
+        tensors[name] = f.get_tensor(key).float()
+
+for a, b in [("stage2", "base_a1"), ("stage2", "stage1")]:
+    delta = (tensors[a] - tensors[b]).abs()
+    print(a, "vs", b, "max_abs", float(delta.max()), "mean_abs", float(delta.mean()), "allclose", bool(torch.allclose(tensors[a], tensors[b])))
+PY
+```
+
+The expected result for a valid `Stage1 + Stage2` run is that `stage2 vs stage1`
+is equal or near-equal for the loaded VLM weights, while `stage2 vs base_a1`
+shows the Stage 1 deltas.
+
+### Approved Follow-up Experiment Plan
+
+Do not start runtime training from this section until the PM explicitly sends a
+separate start instruction. This section records the approved direction and the
+gates that must be satisfied before launch.
+
+#### Phase 1: Stage1-SFT-frozen Stage2 SFT
+
+Question: if the Stage 1-improved VLM is actually inherited by Stage 2, does the
+Stage 2 action expert also improve?
+
+Training scope:
+
+- start from the converted A1-format base as the full Stage 2 model base;
+- load the Stage 1 SFT VLM weights correctly into the Stage 2 VLM;
+- freeze the VLM;
+- train only the Stage 2 action/diffusion expert path.
+
+Suggested run/artifact naming:
+
+- run id prefix: `stage1_sft_frozen_stage2_sft_*`;
+- output root:
+  `/data/alpamayo_sft_artifacts/output_stage1_sft_frozen_stage2_sft_<run_id>`;
+- compact export root:
+  `/data/alpamayo_sft_artifacts/stage1_sft_frozen_stage2_sft_export_<run_id>`;
+- workstation handoff root:
+  `/home/user/Workspace/alpamayo1.5/experiments/nav_demo_inference_comparison/<date>/stage1_sft_frozen_stage2_sft_vs_baseline/stage2_export/`.
+- reproduction entrypoint:
+  `scripts/sft_experiments/run_stage1_sft_frozen_stage2_sft.sh`.
+
+Required pre-training gates:
+
+1. Fix or otherwise prove a safe Stage 1 VLM load path for nested Stage 2 VLM
+   loading.
+2. Report the Stage 1 VLM load log. Broad `missing=750, unexpected=750` is a
+   launch blocker unless explicitly explained by key mapping evidence.
+3. Prove that a Stage 2 model VLM tensor equals or is allclose to the Stage 1
+   checkpoint tensor.
+4. Prove that the same Stage 2 model VLM tensor is not still bit-exact baseline
+   A1.
+5. Report frozen parameter scope and trainable parameter scope, including
+   parameter counts.
+
+Success criteria:
+
+- row07 gate runs before the full 20-row export;
+- full 20-row nav demo export uses the common sampling settings below;
+- mean ADE and row-wise counts improve over the current Stage2-only-ish result;
+- if the action expert can consume the improved VLM context, results should move
+  closer to Stage 1-only than to the current Stage2-only-ish artifact.
+
+Failure interpretation:
+
+- failing the loader/equality gate means the runtime is not testing Stage1 plus
+  Stage2 and must not train;
+- passing the loader gate but failing rollout metrics points to Stage 2
+  objective/eval contract difficulty, exposure bias, insufficient action expert
+  capacity, or sampling behavior rather than the previously observed loader bug.
+
+#### Phase 2: Stage1 plus Stage2 Joint SFT
+
+Question: if selected VLM layers and the Stage 2 action expert are updated
+together, does 20-row overfit and rollout stability improve further?
+
+This phase requires a separate PM approval after Phase 1 review. The starting
+point is still a decision:
+
+- baseline start: cleanest reset, but mixes Stage 1 and Stage 2 learning causes;
+- Stage 1 checkpoint start: preserves the known nav overfit effect and lets the
+  action path adapt around it;
+- Phase 1 continuation: fastest, but inherits any Phase 1 bias or mistakes.
+
+Current preferred direction after Phase 1 success: start from the Stage 1
+checkpoint and update selected VLM layers plus the action expert. Full VLM
+unfreeze is higher risk and needs a separate reason.
+
+Required gates:
+
+1. PM approval after Phase 1 metrics and visuals are reviewed.
+2. Explicit trainable parameter scope, including which VLM layers are unfrozen.
+3. Stage 1 nav retention gate to catch catastrophic forgetting.
+4. Same row07 gate, 20-row export, and matched overlay comparison as Phase 1.
+
+Suggested run/artifact naming:
+
+- run id prefix: `stage1_stage2_joint_sft_*`;
+- output root:
+  `/data/alpamayo_sft_artifacts/output_stage1_stage2_joint_sft_<run_id>`;
+- compact export root:
+  `/data/alpamayo_sft_artifacts/stage1_stage2_joint_sft_export_<run_id>`;
+- workstation handoff root:
+  `/home/user/Workspace/alpamayo1.5/experiments/nav_demo_inference_comparison/<date>/stage1_stage2_joint_sft_vs_baseline/stage2_export/`.
+
+#### Common Evaluation and Export Contract
+
+All Phase 1 and Phase 2 comparisons use:
+
+- row set: `/data/alpamayo_sft_artifacts/nav_demo_samples.json`, all 20 rows;
+- `nav_text`: annotation text unchanged;
+- seed: `42`;
+- `top_p=0.98`;
+- `temperature=0.6`;
+- `diffusion_temperature=0.6` when applicable;
+- `num_traj_samples=1`;
+- `num_traj_sets=1` when applicable;
+- `max_generation_length=256`;
+- dtype: `bfloat16`;
+- metrics: ADE, minADE, endpoint distance, corner distance when available,
+  row-wise better counts, and obvious failure rows.
+
+Row07 reference values remain the first gate:
+
+| Source | Endpoint xy | ADE |
+| --- | --- | ---: |
+| official baseline | `[33.33718490600586, -3.5824496746063232]` | `0.5370676517486572` |
+| Stage 1-only export | `[32.469303131103516, -2.4979147911071777]` | `0.011621384881436825` |
+| current Stage2-only-ish | `[33.731842041015625, -2.083317279815674]` | `0.6909735202789307` |
+
+Every compact export handed to the visualization thread must keep the existing
+schema:
+
+- `manifest.json`;
+- `annotations_snapshot.json`;
+- `<model_name>/results.jsonl`;
+- `<model_name>/predictions.npz`;
+- `<model_name>/summary.json`.
+
+The NPZ keys should remain compatible with the current renderer:
+
+- `row_XX/pred_xyz`;
+- `row_XX/pred_rot`;
+- `row_XX/ego_future_xyz`;
+- `row_XX/ego_future_rot`;
+- `row_XX/ego_history_xyz`;
+- `row_XX/ego_history_rot`.
+
+Before copying model weights or any large artifact to another machine, report
+the size, available target space, and target path for PM approval. Compact
+prediction exports are the preferred visualization handoff.
 
 ## Security Notes
 
@@ -501,6 +802,6 @@ usable input.
 
 ## Non-Claims
 
-This runbook supports a bounded Stage 1 overfit smoke only. It does not establish
-a2z readiness, broad PAI nav readiness, generalization, or autonomous-driving
-quality/safety improvement.
+This runbook supports bounded nav-demo SFT smoke tests and diagnostic
+comparisons only. It does not establish a2z readiness, broad PAI nav readiness,
+generalization, or autonomous-driving quality/safety improvement.

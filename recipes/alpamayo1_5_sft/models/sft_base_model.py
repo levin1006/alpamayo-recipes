@@ -79,6 +79,7 @@ def load_alpamayo1_vlm(checkpoint_path: str, model: Any):
     checkpoint_dir = Path(checkpoint_path)
     index_path = checkpoint_dir / "model.safetensors.index.json"
     vlm_state_dict: dict[str, torch.Tensor] = {}
+    target_keys = model.state_dict().keys()
 
     if index_path.exists():
         with index_path.open("r", encoding="utf-8") as f:
@@ -94,14 +95,21 @@ def load_alpamayo1_vlm(checkpoint_path: str, model: Any):
             shard_sd = load_safetensors_file(str(shard_path), device="cpu")
             for key in keys:
                 if key in shard_sd:
-                    vlm_state_dict[key] = shard_sd[key]
+                    target_key = key
+                    stripped_key = key.removeprefix("vlm.")
+                    if target_key not in target_keys and stripped_key in target_keys:
+                        target_key = stripped_key
+                    vlm_state_dict[target_key] = shard_sd[key]
 
     if not vlm_state_dict:
         raise ValueError(f"No vlm.* tensors found in checkpoint: {checkpoint_dir}")
 
     load_result = model.load_state_dict(vlm_state_dict, strict=False, assign=True)
+    stripped_count = sum(1 for key in vlm_state_dict if not key.startswith("vlm."))
     logger.info(
-        f"Loaded {len(vlm_state_dict)} VLM tensors from {checkpoint_dir} (missing={len(load_result.missing_keys)}, unexpected={len(load_result.unexpected_keys)})",
+        f"Loaded {len(vlm_state_dict)} VLM tensors from {checkpoint_dir} "
+        f"(stripped_vlm_prefix={stripped_count}, "
+        f"missing={len(load_result.missing_keys)}, unexpected={len(load_result.unexpected_keys)})",
     )
 
     return model

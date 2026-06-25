@@ -31,6 +31,22 @@ logger.setLevel("INFO")
 
 
 class TrainableAlpamayoR1(AlpamayoR1):
+    @classmethod
+    def from_pretrained(
+        cls,
+        pretrained_model_name_or_path: str,
+        *model_args: Any,
+        stage1_vlm_checkpoint_path: str | None = None,
+        **kwargs: Any,
+    ) -> "TrainableAlpamayoR1":
+        model = super().from_pretrained(pretrained_model_name_or_path, *model_args, **kwargs)
+        if stage1_vlm_checkpoint_path is not None:
+            model.vlm = load_alpamayo1_vlm(stage1_vlm_checkpoint_path, model.vlm)
+            if not model.cotrain_vlm:
+                for param in model.vlm.parameters():
+                    param.requires_grad = False
+        return model
+
     def __init__(
         self,
         config: AlpamayoR1Config,
