@@ -28,8 +28,7 @@ STAGE1_CKPT = Path(
 DATASET_DIR = Path("/data/datasets/physical_ai_av")
 SAMPLES_JSON = Path("/data/alpamayo_sft_artifacts/nav_demo_samples.json")
 VLM_NAME = "Qwen/Qwen3-VL-8B-Instruct"
-ROW07_INDEX = 7
-ROW07_NAV_TEXT = "Turn right in 30m"
+EXPECTED_NAV_DEMO_ROWS = 20
 
 CHUNK_IDS = [
     214,
@@ -101,10 +100,10 @@ def move_to_device(value: Any, device: torch.device) -> Any:
 
 def load_rows() -> list[dict[str, Any]]:
     rows = json.loads(SAMPLES_JSON.read_text(encoding="utf-8"))
+    if len(rows) != EXPECTED_NAV_DEMO_ROWS:
+        raise RuntimeError(f"Expected {EXPECTED_NAV_DEMO_ROWS} nav-demo rows, got {len(rows)}")
     for idx, row in enumerate(rows):
         row["row_index"] = idx
-    if rows[ROW07_INDEX]["nav_text"] != ROW07_NAV_TEXT:
-        raise RuntimeError(f"Unexpected row07 nav_text: {rows[ROW07_INDEX]['nav_text']!r}")
     return rows
 
 
@@ -249,8 +248,11 @@ def main() -> None:
         "model": "stage1_sft",
         "num_rows": len(records),
         "mean_ade": float(np.mean([r["ade"] for r in records])),
+        "median_ade": float(np.median([r["ade"] for r in records])),
         "mean_min_ade": float(np.mean([r["min_ade"] for r in records])),
+        "median_min_ade": float(np.median([r["min_ade"] for r in records])),
         "mean_corner_distance": float(np.mean([r["corner_distance"] for r in records])),
+        "median_corner_distance": float(np.median([r["corner_distance"] for r in records])),
         "runtime_s": round(time.perf_counter() - start, 3),
         "peak_vram_mib": (
             int(torch.cuda.max_memory_allocated(device) / 1024 / 1024)
@@ -287,11 +289,15 @@ def main() -> None:
             "baseline": "not included; use canonical 2026-06-18 matched baseline for visualization",
         },
         "summary": summary,
+        "evaluation_policy": {
+            "default_unit": "full_20_rows",
+            "row07_note": "row07 is one historical reproducibility reference among 20 rows, not a gate or primary decision row.",
+        },
     }
     (args.output_root / "manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    print(json.dumps({"summary": summary, "row07": records[ROW07_INDEX]}, indent=2, ensure_ascii=False))
+    print(json.dumps({"summary": summary}, indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":

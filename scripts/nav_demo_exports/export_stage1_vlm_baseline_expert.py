@@ -28,6 +28,7 @@ STAGE1_CKPT = Path(
 )
 DATASET_DIR = Path("/data/datasets/physical_ai_av")
 SAMPLES_JSON = Path("/data/alpamayo_sft_artifacts/nav_demo_samples.json")
+EXPECTED_NAV_DEMO_ROWS = 20
 
 CHUNK_IDS = [
     214,
@@ -66,7 +67,11 @@ VLA_PREPROCESS_ARGS = {
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-root", type=Path, required=True)
-    parser.add_argument("--rows", default="all")
+    parser.add_argument(
+        "--rows",
+        default="all",
+        help="'all' for the default 20-row export, or comma-separated row indexes for diagnostics.",
+    )
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--top-p", type=float, default=0.98)
@@ -100,6 +105,8 @@ def move_to_device(value: Any, device: torch.device) -> Any:
 
 def selected_rows(selector: str) -> list[dict[str, Any]]:
     rows = json.loads(SAMPLES_JSON.read_text(encoding="utf-8"))
+    if len(rows) != EXPECTED_NAV_DEMO_ROWS:
+        raise RuntimeError(f"Expected {EXPECTED_NAV_DEMO_ROWS} nav-demo rows, got {len(rows)}")
     for idx, row in enumerate(rows):
         row["row_index"] = idx
     if selector == "all":
@@ -167,8 +174,11 @@ def summarize(records: list[dict[str, Any]], runtime_s: float, device: torch.dev
         "model": "stage1_vlm_baseline_expert",
         "num_rows": len(records),
         "mean_ade": float(np.mean(ades)) if ades else None,
+        "median_ade": float(np.median(ades)) if ades else None,
         "mean_min_ade": float(np.mean(min_ades)) if min_ades else None,
+        "median_min_ade": float(np.median(min_ades)) if min_ades else None,
         "mean_corner_distance": float(np.mean(corners)) if corners else None,
+        "median_corner_distance": float(np.median(corners)) if corners else None,
         "runtime_s": round(runtime_s, 3),
         "peak_vram_mib": (
             int(torch.cuda.max_memory_allocated(device) / 1024 / 1024)
@@ -283,6 +293,10 @@ def main() -> None:
             "samples_json": str(SAMPLES_JSON),
         },
         "summary": summary,
+        "evaluation_policy": {
+            "default_unit": "full_20_rows",
+            "row07_note": "row07 is one historical reproducibility reference among 20 rows, not a gate or primary decision row.",
+        },
     }
     (output_root / "manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"

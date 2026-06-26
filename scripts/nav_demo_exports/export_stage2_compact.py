@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export compact nav-demo predictions for the Stage 2 review gate."""
+"""Export compact 20-row nav-demo predictions for Stage 2 review."""
 
 from __future__ import annotations
 
@@ -34,10 +34,7 @@ STAGE2_CKPT = Path(
 DATASET_DIR = Path("/data/datasets/physical_ai_av")
 SAMPLES_JSON = Path("/data/alpamayo_sft_artifacts/nav_demo_samples.json")
 
-OLD_ROW07_ENDPOINT_XY = np.asarray([33.33718490600586, -3.5824496746063232], dtype=np.float64)
-OLD_ROW07_ADE = 0.5370676517486572
-ROW07_INDEX = 7
-ROW07_NAV_TEXT = "Turn right in 30m"
+EXPECTED_NAV_DEMO_ROWS = 20
 
 CHUNK_IDS = [214, 224, 276, 317, 420, 727, 728, 968, 982, 1519, 1657, 1984, 2277, 2368, 2372, 2447, 2599, 2634, 2868]
 
@@ -59,7 +56,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stage2-ckpt", type=Path, default=STAGE2_CKPT)
     parser.add_argument("--stage2-name", default="stage2_sft")
     parser.add_argument("--created-for", default="stage2_sft_vs_baseline_compact_export")
-    parser.add_argument("--rows", default="7", help="'7' for gate or 'all' for 20-row export.")
+    parser.add_argument("--rows", default="all", help="'all' for the default 20-row export, or comma-separated row indexes for diagnostics.")
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--top-p", type=float, default=0.98)
@@ -110,10 +107,10 @@ def move_to_device(value: Any, device: torch.device) -> Any:
 
 def load_rows() -> list[dict[str, Any]]:
     rows = json.loads(SAMPLES_JSON.read_text(encoding="utf-8"))
+    if len(rows) != EXPECTED_NAV_DEMO_ROWS:
+        raise RuntimeError(f"Expected {EXPECTED_NAV_DEMO_ROWS} nav-demo rows, got {len(rows)}")
     for idx, row in enumerate(rows):
         row["row_index"] = idx
-    if rows[ROW07_INDEX]["nav_text"] != ROW07_NAV_TEXT:
-        raise RuntimeError(f"Unexpected row07 nav_text: {rows[ROW07_INDEX]['nav_text']!r}")
     return rows
 
 
@@ -293,8 +290,11 @@ def summarize(model_name: str, records: list[dict[str, Any]], runtime_s: float, 
         "model": model_name,
         "num_rows": len(records),
         "mean_ade": float(np.mean(ades)) if ades else None,
+        "median_ade": float(np.median(ades)) if ades else None,
         "mean_min_ade": float(np.mean(min_ades)) if min_ades else None,
+        "median_min_ade": float(np.median(min_ades)) if min_ades else None,
         "mean_corner_distance": float(np.mean(corners)) if corners else None,
+        "median_corner_distance": float(np.median(corners)) if corners else None,
         "runtime_s": round(runtime_s, 3),
         "peak_vram_mib": (
             int(torch.cuda.max_memory_allocated(device) / 1024 / 1024)
@@ -331,9 +331,9 @@ def write_manifest(output_root: Path, args: argparse.Namespace, rows: list[dict[
             args.stage2_name: "TrainableAlpamayoR1.from_pretrained(args.stage2_ckpt)",
         },
         "summaries": summaries,
-        "row07_official_reference": {
-            "endpoint_xy": OLD_ROW07_ENDPOINT_XY.tolist(),
-            "ade": OLD_ROW07_ADE,
+        "evaluation_policy": {
+            "default_unit": "full_20_rows",
+            "row07_note": "row07 is one historical reproducibility reference among 20 rows, not a gate or primary decision row.",
         },
     }
     (output_root / "manifest.json").write_text(
@@ -343,32 +343,6 @@ def write_manifest(output_root: Path, args: argparse.Namespace, rows: list[dict[
     (output_root / "annotations_snapshot.json").write_text(
         json.dumps(snapshot, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-
-
-def row07_gate(output_root: Path) -> dict[str, Any]:
-    baseline_path = output_root / "baseline" / "results.jsonl"
-    stage2_candidates = [p for p in output_root.iterdir() if p.is_dir() and p.name != "baseline" and not p.name.startswith("_")]
-    if len(stage2_candidates) != 1:
-        raise RuntimeError(f"Expected exactly one non-baseline model directory, got {stage2_candidates}")
-    stage2_path = stage2_candidates[0] / "results.jsonl"
-    baseline = json.loads(baseline_path.read_text(encoding="utf-8").splitlines()[0])
-    stage2 = json.loads(stage2_path.read_text(encoding="utf-8").splitlines()[0])
-    baseline_endpoint = np.asarray(baseline["endpoint_xy"], dtype=np.float64)
-    stage2_endpoint = np.asarray(stage2["endpoint_xy"], dtype=np.float64)
-    return {
-        "old_official_endpoint_xy": OLD_ROW07_ENDPOINT_XY.tolist(),
-        "old_official_ade": OLD_ROW07_ADE,
-        "baseline_endpoint_xy": baseline["endpoint_xy"],
-        "baseline_ade": baseline["ade"],
-        "baseline_endpoint_l2_vs_old": float(np.linalg.norm(baseline_endpoint - OLD_ROW07_ENDPOINT_XY)),
-        "baseline_ade_abs_diff_vs_old": abs(float(baseline["ade"]) - OLD_ROW07_ADE),
-        "stage2_endpoint_xy": stage2["endpoint_xy"],
-        "stage2_ade": stage2["ade"],
-        "stage2_endpoint_l2_vs_old": float(np.linalg.norm(stage2_endpoint - OLD_ROW07_ENDPOINT_XY)),
-        "stage2_ade_abs_diff_vs_old": abs(float(stage2["ade"]) - OLD_ROW07_ADE),
-        "baseline_nav_text": baseline["nav_text"],
-        "stage2_nav_text": stage2["nav_text"],
-    }
 
 
 def main() -> None:
@@ -383,14 +357,7 @@ def main() -> None:
         args.stage2_name: run_model(args.stage2_name, args.stage2_ckpt, rows, args, args.output_root),
     }
     write_manifest(args.output_root, args, rows, summaries)
-    gate = row07_gate(args.output_root) if [r["row_index"] for r in rows] == [ROW07_INDEX] else None
-    if gate is not None:
-        (args.output_root / "row07_gate.json").write_text(
-            json.dumps(gate, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
-        print(json.dumps(gate, indent=2, ensure_ascii=False))
-    else:
-        print(json.dumps({"summaries": summaries}, indent=2, ensure_ascii=False))
+    print(json.dumps({"summaries": summaries}, indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":

@@ -120,8 +120,9 @@ The `run_stage1_sft_frozen_stage2_sft.sh` script preserves the meaningful
 entrypoint. The archive script preserves the historical launcher shape for the
 2026-06-25 run as evidence, not as the preferred way to launch new reruns.
 
-The following experiment-local helper was not promoted because it was a one-off
-row-level gate and is superseded by the compact export and overlay artifacts:
+The following experiment-local helper was not promoted because it was a
+historical one-row helper and is superseded by the compact export and overlay
+artifacts:
 
 - `logs/stage1_row07_gate/run_row07_gate.py`
 
@@ -194,4 +195,4 @@ Before any new runtime:
 - define trainable parameter scope;
 - estimate memory;
 - confirm loader/freeze/equality gates;
-- run row07 gate before full 20-row export.
+- complete the full 20-row export before reporting demo evaluation complete.

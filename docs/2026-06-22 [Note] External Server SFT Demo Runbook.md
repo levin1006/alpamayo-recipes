@@ -550,9 +550,10 @@ row13/chunk-2868 eval scope.
 - Important scope detail: `configs/sft_stage2_nav.yaml` uses
   `data.val_dataset.chunk_ids: [2868]`. In the 20-row nav demo annotation file,
   chunk `2868` corresponds only to row13
-  (`nav_text="Turn left in 13m"`). It does not evaluate row07 or all 20 rows.
-- Therefore row07 overlay checks and 20-row compact exports are useful local
-  diagnostics, but they are not the same as the README Stage 2 eval contract.
+  (`nav_text="Turn left in 13m"`). It does not evaluate all 20 rows.
+- Therefore 20-row compact exports and overlays are the default local demo
+  evaluation artifacts, while the README Stage 2 eval contract remains a
+  narrower author-style sanity check.
 - Attempted official eval command, without new training:
 
 ```bash
@@ -691,8 +692,8 @@ Required pre-training gates:
 
 Success criteria:
 
-- row07 gate runs before the full 20-row export;
 - full 20-row nav demo export uses the common sampling settings below;
+- no single row is used as a pass/fail gate for the demo result;
 - mean ADE and row-wise counts improve over the current Stage2-only-ish result;
 - if the action expert can consume the improved VLM context, results should move
   closer to Stage 1-only than to the current Stage2-only-ish artifact.
@@ -727,7 +728,7 @@ Required gates:
 1. PM approval after Phase 1 metrics and visuals are reviewed.
 2. Explicit trainable parameter scope, including which VLM layers are unfrozen.
 3. Stage 1 nav retention gate to catch catastrophic forgetting.
-4. Same row07 gate, 20-row export, and matched overlay comparison as Phase 1.
+4. Same full 20-row export and matched overlay comparison as Phase 1.
 
 Suggested run/artifact naming:
 
@@ -753,10 +754,12 @@ All Phase 1 and Phase 2 comparisons use:
 - `num_traj_sets=1` when applicable;
 - `max_generation_length=256`;
 - dtype: `bfloat16`;
-- metrics: ADE, minADE, endpoint distance, corner distance when available,
-  row-wise better counts, and obvious failure rows.
+- metrics: mean and median ADE/minADE, endpoint distance, corner distance when
+  available, row-wise better counts, best/worst rows, and obvious failure
+  clusters.
 
-Row07 reference values remain the first gate:
+Historical row07 reference values remain useful as one reproducibility note among
+the 20 rows. They are not a gate, special report, or primary decision row:
 
 | Source | Endpoint xy | ADE |
 | --- | --- | ---: |
